@@ -4,12 +4,36 @@ import rospy
 import cv2
 import math
 import yaml
+import sys
 
 from sensor_msgs.msg import CompressedImage
 from geometry_msgs.msg import TwistStamped
 
 X_M_PER_PIX = 3.7/70
 Y_M_PER_PIX = 30/720 # meters per pixel in y dimension
+
+class video_capture:
+    def __init__(self, filename):
+        self.cap = cv2.VideoCapture(0)
+        self.record_init(filename)
+        
+    def record_init(self, filename):
+        if not self.cap.isOpened():
+            print("Camera open failed!")
+            sys.exit()
+        w = round(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = round(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = self.cap.get(cv2.CAP_PROP_FPS)
+        fourcc = cv2.VideoWriter_fourcc(*'X264')
+        delay = round(1000/fps)
+        self.writer = cv2.VideoWriter(filename+".mp4", fourcc, fps, (w, h))
+
+        if not self.writer.isOpened():
+            print('File open failed!')
+            self.cap.release()
+            sys.exit()
+    
+
 
 def find_firstfit(binary_array, direction, lower_threshold=20) :
     start, end = (binary_array.shape[0]-1, -1) if direction == -1 else (0, binary_array.shape[0])
@@ -269,6 +293,11 @@ class lane_keeping_module:
         self.velocity = config_dict['velocity']
         self.steer_sensitivity = config_dict['steer_sensitivity']
         self.debug_window = config_dict['debug_window']
+        
+        # TODO: Record
+        # Video Record
+        self.record = config_dict['record']    
+        self.is_record_init = False    
 
         if self.debug_window:
             self.trackbar_img = np.zeros((1,400), np.uint8)
@@ -296,6 +325,17 @@ class lane_keeping_module:
             cv2.createTrackbar("[be]top_width", "TrackBar", self.birdeye_warp_param['top_width'], 320, self.onChange)
             cv2.createTrackbar("[be]bottom_width", "TrackBar", self.birdeye_warp_param['bottom_width'], 320, self.onChange)
             cv2.createTrackbar("[be]birdeye_width", "TrackBar", self.birdeye_warp_param['birdeye_width'], 320, self.onChange)
+
+    # TODO: Record
+    def record_init(self):
+        self.video_record = video_capture("output")
+        self.is_record_init = True
+        return
+
+    # TODO: Record
+    def record_frame(self, image):
+        if self.is_record_init:
+            self.video_record.writer.write(image)
 
     def onChange(self, pos):
         pass
@@ -400,6 +440,10 @@ class lane_keeping_module:
                 cv2.imshow('filtered_birdeye', (filtered_birdeye*255).astype(np.uint8))
                 cv2.imshow('TrackBar', self.trackbar_img)
 
+            # TODO: Record
+            if self.record:
+                self.record_frame(original_image)
+
             msg = TwistStamped()
             velocity, angle = self.calculate_velocity_and_angle(slope_value)
 
@@ -432,5 +476,9 @@ if __name__ == '__main__':
         ic.lgsvl_spinner()
     else:
         ic.config_image_source(config_dict['mode'])
+        if ic.record:
+            ic.record_init()
+
         ic.twist_publisher()
+        
 
